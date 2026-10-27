@@ -1,4 +1,4 @@
-# Walmart Retail Forecasting & Decision Support System
+# Retail Company Forecasting & Decision Support System
 
 Solución integral de Ciencia de Datos para la predicción de ventas, unidades y transacciones en tiendas de retail en México.
 
