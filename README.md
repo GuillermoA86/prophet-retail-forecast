@@ -29,6 +29,7 @@ retail-forecast/
 ├── requirements.txt         # Dependencias del proyecto
 └── README.md                # Documentación principal del proyecto
 
+```
 ---
 
 🛠️ Requisitos Previos
