@@ -112,6 +112,44 @@ if selected_store == "Todas las tiendas":
         fig_fmt.update_layout(template="plotly_white", showlegend=False)
         st.plotly_chart(fig_fmt, use_container_width=True)
 
+    # ----------------- NUEVA SECCIÓN: ANÁLISIS POR M2 SEGMENTADO POR NSE -----------------
+    st.markdown("---")
+    st.subheader("🏢 Análisis de Eficiencia: Rendimiento por Metro Cuadrado (m²) por Nivel Socioeconómico (NSE)")
+    
+    # Agrupar por tienda única para evitar duplicados temporales y calcular densidad por m2
+    store_nse_agg = df_filtered.groupby(['store_id', 'socioeconomic_level', 'size_sqm'])[selected_metric_key].sum().reset_index()
+    nse_perf = store_nse_agg.groupby('socioeconomic_level').agg({
+        selected_metric_key: 'sum',
+        'size_sqm': 'sum'
+    }).reset_index()
+    nse_perf['metric_per_sqm'] = nse_perf[selected_metric_key] / nse_perf['size_sqm']
+
+    col_nse1, col_nse2 = st.columns([2, 1])
+    with col_nse1:
+        fig_nse = px.bar(
+            nse_perf, 
+            x='socioeconomic_level', 
+            y='metric_per_sqm', 
+            color='socioeconomic_level',
+            text_auto='.2f',
+            labels={
+                'socioeconomic_level': 'Nivel Socioeconómico (NSE)', 
+                'metric_per_sqm': f'{metric_labels[selected_metric_key]} por m² (MXN)'
+            }
+        )
+        fig_nse.update_layout(template="plotly_white", showlegend=False)
+        st.plotly_chart(fig_nse, use_container_width=True)
+        
+    with col_nse2:
+        st.markdown("### 💡 Análisis y Hallazgos Estratégicos")
+        st.markdown(
+            f"Este indicador mide la **densidad de productividad comercial** por metro cuadrado instalado en función del perfil socioeconómico. "
+            f"Permite identificar qué segmentos maximizan el rendimiento operativo, optimizando la asignación de espacio y surtido para futuras aperturas o remodelaciones."
+        )
+        if not nse_perf.empty:
+            best_nse = nse_perf.loc[nse_perf['metric_per_sqm'].idxmax()]
+            st.info(f"📌 **Segmento Más Productivo:** El nivel **{best_nse['socioeconomic_level']}** lidera la eficiencia comercial con un promedio de **MXN ${best_nse['metric_per_sqm']:,.2f} / m²**.")
+
 # ----------------- VISTA 2: TIENDA ESPECÍFICA -----------------
 else:
     store_info = df[df['store_id'] == selected_store].iloc[0]
@@ -273,7 +311,6 @@ if st.button("🚀 Generar Pronóstico con Prophet"):
                 b_rmse = model_eval.get('baseline_rmse', 0)
                 b_mape = model_eval.get('baseline_mape', 0)
 
-                # Tabla comparativa de métricas
                 comparison_df = pd.DataFrame({
                     "Métrica de Error": ["MAE (Error Absoluto Medio)", "RMSE (Raíz Error Cuadrático)", "MAPE (Error % Absoluto)"],
                     "Modelo Prophet (Backtest)": [f"{mae:,.2f}", f"{rmse:,.2f}", f"{mape:.2%}"],
