@@ -20,6 +20,8 @@ services:
       - "8501:8501"
     volumes:
       - ./data:/app/data
+    environment:
+      - API_URL=http://api:8000  # <--- ¡Esto es clave para que hable con el otro contenedor!
     depends_on:
       - api
     restart: always
