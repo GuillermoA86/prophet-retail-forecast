@@ -1,4 +1,4 @@
-# 🛒 Walmart Retail Intelligence & Demand Forecasting
+# 🛒 Retail Intelligence & Demand Forecasting
 
 Solución analítica y predictiva de nivel corporativo diseñada para el análisis operativo y el pronóstico de demanda en tiendas de retail de Walmart. La arquitectura desacopla el motor analítico e inferencia (**FastAPI + Prophet**) de la interfaz ejecutiva (**Streamlit**), respaldado por un pipeline de validación sin *data leakage* (*out-of-sample backtest*) y orquestación con contenedores.
 
