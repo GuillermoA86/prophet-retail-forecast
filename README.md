@@ -46,6 +46,7 @@ Paso 1: Clonar el repositorio
 Bash
 git clone [https://github.com/GuillermoA86/prophet-retail-forecast.git](https://github.com/GuillermoA86/prophet-retail-forecast.git)
 cd prophet-retail-forecast
+
 Paso 2: Crear y activar el entorno virtual
 Bash
 python -m venv venv
@@ -53,9 +54,11 @@ python -m venv venv
 .\venv\Scripts\Activate
 # En macOS / Linux:
 source venv/bin/activate
+
 Paso 3: Instalar las dependencias
 Bash
 pip install -r requirements.txt
+
 Paso 4: Correr la API del Modelo (FastAPI)
 Abre una primera terminal, asegúrate de tener el entorno virtual activado (venv) y ejecuta el servidor backend:
 
