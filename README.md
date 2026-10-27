@@ -29,7 +29,7 @@ retail-forecast/
 ├── requirements.txt         # Dependencias del proyecto
 └── README.md                # Documentación principal del proyecto
 
-
+---
 
 🛠️ Requisitos Previos
 Python 3.10 o superior instalado.
@@ -44,7 +44,7 @@ Para ejecutar la aplicación de forma nativa en tu máquina, sigue estos pasos:
 Paso 1: Clonar el repositorio
 Bash
 git clone [https://github.com/GuillermoA86/prophet-retail-forecast.git](https://github.com/GuillermoA86/prophet-retail-forecast.git)
-cd walmart-retail-forecast
+cd prophet-retail-forecast
 Paso 2: Crear y activar el entorno virtual
 Bash
 python -m venv venv
