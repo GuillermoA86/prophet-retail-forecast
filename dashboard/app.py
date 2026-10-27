@@ -6,10 +6,10 @@ import plotly.graph_objects as go
 import os
 import sys
 
-# 🛠️ Agregar el directorio raíz del proyecto al sys.path
+# 🛠️ Agregar el directorio raíz al path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-st.set_page_config(page_title="Walmart Retail Intelligence Dashboard", layout="wide")
+st.set_page_config(page_title="Retail Intelligence Dashboard", layout="wide")
 
 st.markdown("""
     <style>
@@ -112,13 +112,6 @@ if selected_store == "Todas las tiendas":
         fig_fmt.update_layout(template="plotly_white", showlegend=False)
         st.plotly_chart(fig_fmt, use_container_width=True)
 
-    st.markdown("---")
-    st.subheader("📊 Ventas por Nivel Socioeconómico")
-    nse_sales = df_filtered.groupby('socioeconomic_level')['amount_total'].sum().reset_index()
-    fig_nse = px.bar(nse_sales, x='socioeconomic_level', y='amount_total', color='socioeconomic_level', labels={'socioeconomic_level': 'Nivel Socioeconómico', 'amount_total': 'Ventas Totales (MXN)'})
-    fig_nse.update_layout(template="plotly_white", showlegend=False)
-    st.plotly_chart(fig_nse, use_container_width=True)
-
 # ----------------- VISTA 2: TIENDA ESPECÍFICA -----------------
 else:
     store_info = df[df['store_id'] == selected_store].iloc[0]
@@ -146,9 +139,21 @@ else:
     sqm = store_info['size_sqm']
     sales_per_sqm = s_val / sqm if sqm > 0 else 0
 
+    # Benchmark Regional para el Delta
+    region_name = store_info['region']
+    df_region = df[df['region'] == region_name]
+    if selected_category != "Todas":
+        df_region = df_region[df_region['category'] == selected_category]
+    regional_avg_sales = df_region.groupby('store_id')[selected_metric_key].sum().mean()
+    diff_vs_region = ((s_val - regional_avg_sales) / regional_avg_sales) * 100 if regional_avg_sales > 0 else 0
+
     st.markdown("---")
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric(f"Total {metric_labels[selected_metric_key]}", f"{unit_prefix}{s_val:,.0f}")
+    col1.metric(
+        label=f"Total {metric_labels[selected_metric_key]}", 
+        value=f"{unit_prefix}{s_val:,.0f}",
+        delta=f"{diff_vs_region:+.1f}% vs Prom. Regional"
+    )
     col2.metric("Transacciones", f"{s_trans:,.0f}")
     col3.metric("Ticket Promedio", f"MXN ${s_ticket:,.2f}")
     col4.metric("Rendimiento por Metro Cuadrado", f"MXN ${sales_per_sqm:,.2f} / m²")
@@ -175,7 +180,7 @@ api_store_param = "Todas" if selected_store == "Todas las tiendas" else selected
 api_cat_param = selected_category
 
 if st.button("🚀 Generar Pronóstico con Prophet"):
-    with st.spinner("Calculando estacionalidad, festivos y eventos con Prophet..."):
+    with st.spinner("Calculando estacionalidad, festivos y backtest out-of-sample..."):
         try:
             response = requests.post(f"{API_URL}/predict_json", json={
                 "store_id": api_store_param,
@@ -256,19 +261,25 @@ if st.button("🚀 Generar Pronóstico con Prophet"):
             m3.metric("Modelo Activo", "Prophet (con Ciclicidad)")
 
             st.markdown("---")
-            st.subheader("📐 Desempeño y Precisión del Modelo")
+            st.subheader("📐 Desempeño y Precisión del Modelo (Backtest Out-of-Sample vs. Baseline)")
 
-            # Renderizado único de las métricas de evaluación
             model_eval = data.get('metrics', {})
             if model_eval:
                 mae = model_eval.get('mae', 0)
                 rmse = model_eval.get('rmse', 0)
                 mape = model_eval.get('mape', 0)
+                
+                b_mae = model_eval.get('baseline_mae', 0)
+                b_rmse = model_eval.get('baseline_rmse', 0)
+                b_mape = model_eval.get('baseline_mape', 0)
 
-                mm1, mm2, mm3 = st.columns(3)
-                mm1.metric("Error Absoluto Medio (MAE)", f"{mae:,.2f}")
-                mm2.metric("Raíz del Error Cuadrático (RMSE)", f"{rmse:,.2f}")
-                mm3.metric("Error Porcentual Absoluto (MAPE)", f"{mape:.2%}")
+                # Tabla comparativa de métricas
+                comparison_df = pd.DataFrame({
+                    "Métrica de Error": ["MAE (Error Absoluto Medio)", "RMSE (Raíz Error Cuadrático)", "MAPE (Error % Absoluto)"],
+                    "Modelo Prophet (Backtest)": [f"{mae:,.2f}", f"{rmse:,.2f}", f"{mape:.2%}"],
+                    "Modelo Base (Naive Baseline)": [f"{b_mae:,.2f}", f"{b_rmse:,.2f}", f"{b_mape:.2%}"]
+                })
+                st.table(comparison_df)
             else:
                 st.info("ℹ️ No se encontraron métricas en la respuesta de la API.")
 

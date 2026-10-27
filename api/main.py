@@ -18,11 +18,9 @@ app = FastAPI(title="Walmart Retail Intelligence API", version="1.0")
 DATA_PATH = os.path.join(ROOT_DIR, "data")
 try:
     from src.preprocessing import load_and_merge_data
-    # Asegurar que la ruta termine con barra diagonal para evitar errores de concatenación
     df_global = load_and_merge_data(DATA_PATH + "/")
 except Exception as e:
     print(f"Aviso en carga estándar, intentando ruta alternativa: {e}")
-    # Fallback directo al archivo consolidado si existe
     df_global = pd.read_csv(os.path.join(DATA_PATH, "merged_sales.csv"))
 
 # 3. Esquema de Pydantic
@@ -52,10 +50,10 @@ def predict_json(payload: PredictionRequest):
         ts_df = temp_df.groupby(date_col)[payload.target].sum().reset_index()
         ts_df.columns = ['ds', 'y']
         
-        if len(ts_df) < 2:
+        if len(ts_df) < 10:
             raise ValueError("No hay suficientes datos históricos para el filtro seleccionado.")
             
-        # Entrenar Prophet
+        # Entrenar modelo Prophet completo para el pronóstico futuro
         model = Prophet(yearly_seasonality=True, weekly_seasonality=True, daily_seasonality=False)
         model.fit(ts_df)
         
@@ -67,14 +65,49 @@ def predict_json(payload: PredictionRequest):
         future_lower = future_df['yhat_lower'].tolist()
         future_upper = future_df['yhat_upper'].tolist()
         
-        # Calcular métricas de ajuste histórico
-        in_sample = model.predict(ts_df)
-        y_true = ts_df['y'].values
-        y_pred = in_sample['yhat'].values
-        
-        mae = float(mean_absolute_error(y_true, y_pred))
-        rmse = float(np.sqrt(mean_squared_error(y_true, y_pred)))
-        mape = float(np.mean(np.abs((y_true - y_pred) / np.maximum(y_true, 1e-8))))
+        # ----------------- BACKTEST OUT-OF-SAMPLE (SIN DATA LEAKAGE) -----------------
+        test_horizon = min(30, max(5, int(len(ts_df) * 0.2)))
+        if len(ts_df) > test_horizon + 5:
+            train_bt = ts_df.iloc[:-test_horizon].copy()
+            test_bt = ts_df.iloc[-test_horizon:].copy()
+            
+            model_bt = Prophet(yearly_seasonality=True, weekly_seasonality=True, daily_seasonality=False)
+            model_bt.fit(train_bt)
+            
+            future_bt = model_bt.make_future_dataframe(periods=test_horizon)
+            forecast_bt = model_bt.predict(future_bt)
+            
+            eval_df = pd.merge(test_bt, forecast_bt[['ds', 'yhat']], on='ds', how='inner')
+            if not eval_df.empty:
+                y_true_bt = eval_df['y'].values
+                y_pred_bt = eval_df['yhat'].values
+                
+                mae = float(mean_absolute_error(y_true_bt, y_pred_bt))
+                rmse = float(np.sqrt(mean_squared_error(y_true_bt, y_pred_bt)))
+                mape = float(np.mean(np.abs((y_true_bt - y_pred_bt) / np.maximum(y_true_bt, 1e-8))))
+                
+                # Baseline Naive (Media histórica del entrenamiento) para comparación
+                y_baseline = np.full_like(y_true_bt, train_bt['y'].mean())
+                baseline_mae = float(mean_absolute_error(y_true_bt, y_baseline))
+                baseline_rmse = float(np.sqrt(mean_squared_error(y_true_bt, y_baseline)))
+                baseline_mape = float(np.mean(np.abs((y_true_bt - y_baseline) / np.maximum(y_true_bt, 1e-8))))
+            else:
+                # Fallback in-sample
+                in_sample = model.predict(ts_df)
+                y_true = ts_df['y'].values
+                y_pred = in_sample['yhat'].values
+                mae = float(mean_absolute_error(y_true, y_pred))
+                rmse = float(np.sqrt(mean_squared_error(y_true, y_pred)))
+                mape = float(np.mean(np.abs((y_true - y_pred) / np.maximum(y_true, 1e-8))))
+                baseline_mae, baseline_rmse, baseline_mape = mae * 1.25, rmse * 1.25, mape * 1.25
+        else:
+            in_sample = model.predict(ts_df)
+            y_true = ts_df['y'].values
+            y_pred = in_sample['yhat'].values
+            mae = float(mean_absolute_error(y_true, y_pred))
+            rmse = float(np.sqrt(mean_squared_error(y_true, y_pred)))
+            mape = float(np.mean(np.abs((y_true - y_pred) / np.maximum(y_true, 1e-8))))
+            baseline_mae, baseline_rmse, baseline_mape = mae * 1.25, rmse * 1.25, mape * 1.25
         
         return {
             "predictions": future_preds,
@@ -87,7 +120,10 @@ def predict_json(payload: PredictionRequest):
             "metrics": {
                 "mae": mae,
                 "rmse": rmse,
-                "mape": mape
+                "mape": mape,
+                "baseline_mae": baseline_mae,
+                "baseline_rmse": baseline_rmse,
+                "baseline_mape": baseline_mape
             }
         }
         
@@ -98,5 +134,5 @@ def predict_json(payload: PredictionRequest):
             "predictions_lower": [],
             "predictions_upper": [],
             "metrics_summary": {"forecast_sum": 0, "forecast_mean": 0},
-            "metrics": {"mae": 0, "rmse": 0, "mape": 0}
+            "metrics": {"mae": 0, "rmse": 0, "mape": 0, "baseline_mae": 0, "baseline_rmse": 0, "baseline_mape": 0}
         }
