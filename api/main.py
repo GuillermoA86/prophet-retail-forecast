@@ -4,6 +4,8 @@ import pandas as pd
 import numpy as np
 from prophet import Prophet
 from sklearn.metrics import mean_absolute_error, mean_squared_error
+from statsmodels.stats.diagnostic import acorr_ljungbox
+import scipy.stats as stats
 import os
 import sys
 
@@ -65,8 +67,13 @@ def predict_json(payload: PredictionRequest):
         future_lower = future_df['yhat_lower'].tolist()
         future_upper = future_df['yhat_upper'].tolist()
         
-        # ----------------- BACKTEST OUT-OF-SAMPLE (SIN DATA LEAKAGE) -----------------
+        # ----------------- BACKTEST OUT-OF-SAMPLE & DIAGNÓSTICO DE RESIDUOS -----------------
         test_horizon = min(30, max(5, int(len(ts_df) * 0.2)))
+        
+        ljung_box_stat, ljung_box_pvalue = 0.0, 1.0
+        osm_list, osr_list = [], []
+        residuals_list = []
+
         if len(ts_df) > test_horizon + 5:
             train_bt = ts_df.iloc[:-test_horizon].copy()
             test_bt = ts_df.iloc[-test_horizon:].copy()
@@ -86,13 +93,31 @@ def predict_json(payload: PredictionRequest):
                 rmse = float(np.sqrt(mean_squared_error(y_true_bt, y_pred_bt)))
                 mape = float(np.mean(np.abs((y_true_bt - y_pred_bt) / np.maximum(y_true_bt, 1e-8))))
                 
-                # Baseline Naive (Media histórica del entrenamiento) para comparación
+                # Baseline Naive
                 y_baseline = np.full_like(y_true_bt, train_bt['y'].mean())
                 baseline_mae = float(mean_absolute_error(y_true_bt, y_baseline))
                 baseline_rmse = float(np.sqrt(mean_squared_error(y_true_bt, y_baseline)))
                 baseline_mape = float(np.mean(np.abs((y_true_bt - y_baseline) / np.maximum(y_true_bt, 1e-8))))
+
+                # --- CÁLCULO DE RESIDUOS Y DIAGNÓSTICO ---
+                residuals = y_true_bt - y_pred_bt
+                residuals_list = residuals.tolist()
+
+                # 1. Prueba de Ljung-Box (Autocorrelación de errores)
+                if len(residuals) > 5:
+                    lags_test = min(10, len(residuals) // 2)
+                    lb_result = acorr_ljungbox(residuals, lags=[lags_test], return_df=True)
+                    ljung_box_stat = float(lb_result['lb_stat'].iloc[-1])
+                    ljung_box_pvalue = float(lb_result['lb_pvalue'].iloc[-1])
+
+                # 2. Coordenadas Q-Q Plot con residuos estandarizados (media=0, std=1)
+                if len(residuals) > 1 and np.std(residuals) > 0:
+                    residuals_std = (residuals - np.mean(residuals)) / np.std(residuals)
+                    osm, osr = stats.probplot(residuals_std, dist="norm", fit=False)
+                    osm_list = osm.tolist()
+                    osr_list = osr.tolist()
+
             else:
-                # Fallback in-sample
                 in_sample = model.predict(ts_df)
                 y_true = ts_df['y'].values
                 y_pred = in_sample['yhat'].values
@@ -124,6 +149,13 @@ def predict_json(payload: PredictionRequest):
                 "baseline_mae": baseline_mae,
                 "baseline_rmse": baseline_rmse,
                 "baseline_mape": baseline_mape
+            },
+            "residuals_diagnostics": {
+                "ljung_box_stat": ljung_box_stat,
+                "ljung_box_pvalue": ljung_box_pvalue,
+                "qq_theoretical": osm_list,
+                "qq_sample": osr_list,
+                "residuals": residuals_list
             }
         }
         
@@ -134,5 +166,6 @@ def predict_json(payload: PredictionRequest):
             "predictions_lower": [],
             "predictions_upper": [],
             "metrics_summary": {"forecast_sum": 0, "forecast_mean": 0},
-            "metrics": {"mae": 0, "rmse": 0, "mape": 0, "baseline_mae": 0, "baseline_rmse": 0, "baseline_mape": 0}
+            "metrics": {"mae": 0, "rmse": 0, "mape": 0, "baseline_mae": 0, "baseline_rmse": 0, "baseline_mape": 0},
+            "residuals_diagnostics": {"ljung_box_stat": 0, "ljung_box_pvalue": 1.0, "qq_theoretical": [], "qq_sample": [], "residuals": []}
         }
